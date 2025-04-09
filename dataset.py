@@ -12,8 +12,7 @@ class Dataset:
 
         self.path = path
         self.ratings_path = os.path.join(path, "ratings.dat")
-        self.ratings = self.load_ratings_as_df(self.ratings_path) # to be removed when below line is ready
-        #self.ratings = self.preprocess_ratings(self.load_ratings_as_df(self.ratings_path))
+        self.ratings = self.preprocess_ratings(self.load_ratings_as_df(self.ratings_path))
 
     def load_ratings_as_df(self, filename):
         ratings = pd.read_csv(
@@ -29,8 +28,8 @@ class Dataset:
         ratings_processed = self.convert_to_binary(ratings_processed)
         ratings_processed = self.filter_less_than_5(ratings_processed)
         ratings_processed = self.order_by_timestamp(ratings_processed)
-        ratings_processed = self.perform_sequence_truncation(ratings_processed)
-        ratings_processed = self.split_train_test(ratings_processed)
+        #ratings_processed = self.perform_sequence_truncation(ratings_processed)
+        #ratings_processed = self.split_train_test(ratings_processed)
         return ratings_processed
 
     def convert_to_binary(self, ratings):
