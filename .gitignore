@@ -3,4 +3,3 @@
 .env
 venv/
 __pycache__/
-data_test.ipynb
