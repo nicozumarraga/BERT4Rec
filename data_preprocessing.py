@@ -5,10 +5,16 @@ import torch
 import random
 
 class Dataset:
-    def __init__(self, path):
+    def __init__(self, path = "data/"):
         self.path = path
-        self.ratings_path = os.path.join(self.path, "ratings.dat")
-        self.ratings = self.preprocess_ratings(self.load_ratings_as_df(self.ratings_path))
+        self.preprocessed_ratings_path = os.path.join(self.path, "user_ratings.csv")
+
+        if os.path.exists(self.preprocessed_ratings_path):
+            self.ratings = pd.read_csv(self.preprocessed_ratings_path)
+        else:
+            self.ratings_path = os.path.join(self.path, "ratings.dat")
+            self.ratings = self.preprocess_ratings(self.load_ratings_as_df(self.ratings_path))
+            self.ratings.to_csv(self.preprocessed_ratings_path, index=False)
 
     def load_ratings_as_df(self, filename):
         ratings = pd.read_csv(
