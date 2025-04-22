@@ -4,9 +4,13 @@ Separation of concerns is used since this class can be subject to tuning,
 the other simply prepares the data.
 """
 from dataclasses import dataclass
-from data_preprocessing import Dataset
+from data_preprocessing import DataPreprocessing
 import pandas as pd
 from enum import IntEnum
+import torch as T
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
 
 @dataclass
 class DataParameters():
@@ -18,9 +22,12 @@ class DataParameters():
 
 
 
-class DataProcessing:
+class DataProcessing(Dataset):
     def __init__(self):
-        dataset = Dataset()
+
+        super().__init__()
+
+        dataset = DataPreprocessing()
         self.params = DataParameters()
         self.ratings = dataset.ratings
 

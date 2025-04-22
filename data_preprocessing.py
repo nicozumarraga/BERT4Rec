@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import random
 
-class Dataset:
+class DataPreprocessing:
     def __init__(self, path = "data/"):
         self.path = path
         self.preprocessed_ratings_path = os.path.join(self.path, "user_ratings.csv")
