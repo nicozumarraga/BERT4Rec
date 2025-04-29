@@ -40,11 +40,11 @@ class DataProcessing:
         self.params = DataParameters()
         self.ratings = dataset.ratings
 
-        self.train_df, self.test_df, self.val_df = self.split_user_sequences()
+        self.train_df, self.val_df, self.test_df = self.split_user_sequences()
 
         self.train_df = self.pad_user_sequences(self.train_df)
-        self.test_df = self.pad_user_sequences(self.test_df)
         self.val_df = self.pad_user_sequences(self.val_df)
+        self.test_df = self.pad_user_sequences(self.test_df)
 
     def split_user_sequences(self):
         train_sequences = []
@@ -128,7 +128,7 @@ class DataProcessing:
                 return interactions  # No padding needed
             elif n_inter < self.params.pad_length:
                 padding_length = self.params.pad_length - n_inter
-                padding = [self.params.PAD] * padding_length
+                padding = [self.params.padding_token] * padding_length
 
                 if self.params.pad_side == "left":
                     return padding + interactions

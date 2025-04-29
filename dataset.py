@@ -3,7 +3,10 @@ import random
 import numpy as np
 from torch.utils.data import Dataset
 
-from data_processing import DataParameters
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from data_processing import DataParameters
 
 
 # TODO: test this code
@@ -61,6 +64,6 @@ class BERT4RecDataset(Dataset):
 
         if n_to_mask > 0 and valid_positions:
             mask_positions = random.sample(valid_positions, n_to_mask)
-            masked_sequence[mask_positions] = self.params.MASK
+            masked_sequence[mask_positions] = self.params.masking_token
 
         return masked_sequence
