@@ -44,7 +44,7 @@ class Bert4Rec(nn.Module):
 
         bert_output = self.bert(source, source_mask)
         bert_output.last_hidden_state
-        encoder_output = self.encoder(source, source_mask)
+        encoder_output = self.output(bert_output.last_hidden_state)
 
         output = self.reco(encoder_output)
 

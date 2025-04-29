@@ -7,11 +7,7 @@ the other simply prepares the data.
 from dataclasses import dataclass
 from data_preprocessing import DataPreprocessing
 import pandas as pd
-from enum import IntEnum
-import torch as T
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from math import ceil
 
 from dataset import BERT4RecDataset
@@ -20,7 +16,7 @@ from dataset import BERT4RecDataset
 @dataclass
 class DataParameters:
     padding_token: int = 0
-    masking_token: int = 1
+    masking_token: int = -1
     pad_length: int = 20
     pad_side: str = "left"
     trunc_side: str = "left"  # keep latest interactions
@@ -35,10 +31,12 @@ class DataParameters:
 
 
 class DataProcessing:
-    def __init__(self):
-        dataset = DataPreprocessing()
-        self.params = DataParameters()
-        self.ratings = dataset.ratings
+    def __init__(
+        self, preprocessor: DataPreprocessing, params: DataParameters = DataParameters()
+    ):
+        self.preprocessor = preprocessor
+        self.params = params
+        self.ratings = preprocessor.ratings
 
         self.train_df, self.val_df, self.test_df = self.split_user_sequences()
 
