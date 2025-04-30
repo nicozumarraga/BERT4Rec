@@ -36,10 +36,10 @@ class BERT4RecDataset(Dataset):
         if not includes_target:
             input_ids = self._apply_masking(sequence, attention_mask)
 
-            # Set tokens that are not a label (not masked) to -100
+            # Set tokens that are not a label (not masked) to padding so they are ignored by the loss function
             for i in range(len(labels)):
                 if input_ids[i] != self.params.masking_token:
-                    labels[i] = -100
+                    labels[i] = self.params.padding_token
 
         # Sequence includes a target: the last element
         else:
@@ -47,7 +47,7 @@ class BERT4RecDataset(Dataset):
             last_pos = len(sequence) - 1
             input_ids[last_pos] = self.params.masking_token
             for i in range(len(labels) - 1):
-                labels[i] = -100
+                labels[i] = self.params.padding_token
 
         return {
             "user_id": user_id,

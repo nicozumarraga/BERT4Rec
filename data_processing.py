@@ -16,7 +16,7 @@ from dataset import BERT4RecDataset
 @dataclass
 class DataParameters:
     padding_token: int = 0
-    masking_token: int = -1
+    masking_token: int = 1
     pad_length: int = 20
     pad_side: str = "left"
     trunc_side: str = "left"  # keep latest interactions
@@ -25,9 +25,6 @@ class DataParameters:
     val_split: float = 0.15
     min_sequence_lenght: int = 3
     mask_probability: float = 0.15
-
-
-# TODO: again test this code
 
 
 class DataProcessing:
@@ -43,6 +40,15 @@ class DataProcessing:
         self.train_df = self.pad_user_sequences(self.train_df)
         self.val_df = self.pad_user_sequences(self.val_df)
         self.test_df = self.pad_user_sequences(self.test_df)
+
+    def get_token_count(self):
+        unique_movie_ids = set()
+
+        for row in self.ratings["dense_movie_id"]:
+            row = eval(row)
+            unique_movie_ids.update(row)
+
+        return max(unique_movie_ids) + 1
 
     def split_user_sequences(self):
         train_sequences = []
@@ -79,14 +85,23 @@ class DataProcessing:
 
             # TODO: possibly generate subsequences for training
 
-            # Train: MLM, no target
-            train_sequences.append(
-                {
-                    "user_id": user_id,
-                    "input_seq": interactions[:train_end],
-                    "target": False,
-                }
-            )
+            # Train: MLM, no target. Use sliding window to generate many subsequences per user.
+            train_seq = interactions[:train_end]
+            min_len = min(self.params.min_sequence_lenght, len(train_seq))
+
+            # Generate sliding window subsequences
+            for end_idx in range(min_len, len(train_seq) + 1):
+                # Take at most pad_length items to avoid excessive padding
+                start_idx = max(0, end_idx - self.params.pad_length)
+                subseq = train_seq[start_idx:end_idx]
+
+                train_sequences.append(
+                    {
+                        "user_id": user_id,
+                        "input_seq": subseq,
+                        "target": False,
+                    }
+                )
 
             # Validation: Predict the next item after train sequence plus validation sequence
             val_sequences.append(
