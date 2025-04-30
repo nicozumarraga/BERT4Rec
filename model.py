@@ -19,10 +19,9 @@ from data_processing import DataParameters, DataProcessing
 class Bert4RecParams:
     vocab_size: int = 59049
     heads: int = 4
-    num_hidden_layers: int = 4  # TODO: use params from bert4rec
-    hidden_layer_size: int = 256  # TODO: use params from bert4rec
-    emb_dim: Tuple[int, ...] = (256,)  # TODO: implement
-    num_pos: int = 128
+    num_hidden_layers: int = 4
+    hidden_layer_size: int = 256
+    num_pos: int = 20
 
 
 class Bert4Rec(nn.Module):
@@ -57,35 +56,28 @@ class Bert4RecTrainingParams(Bert4RecParams):
     epochs: int = 10
     batch_size: int = 64
     learning_rate: float = (
-        1e-3  # Changed from 0.05 to a more appropriate value for Adam
+        1e-3
     )
     weight_decay: float = 1e-4
-    patience: int = 3  # For early stopping
-    scheduler_patience: int = 1  # For LR scheduler
+    patience: int = 3
+    scheduler_patience: int = 1
     scheduler_factor: float = 0.5
 
 
 def train(data_processor: "DataProcessing", params: Bert4RecTrainingParams):
-    # Get dataloaders
-    train_loader, val_loader, test_loader = data_processor.get_dataloaders(
-        batch_size=params.batch_size
-    )
-
-    # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device {device.type}")
 
-    # Initialize model
     model = Bert4Rec(params).to(device)
 
-    # Define loss function (ignoring padding tokens - assuming 0 is padding)
+    # Ignore 0 tokens because this is either padding or a token that's also in the input sequence
     criterion = nn.CrossEntropyLoss(ignore_index=0)
 
-    # Initialize optimizer with weight decay for regularization
     optimizer = optim.Adam(
         model.parameters(), lr=params.learning_rate, weight_decay=params.weight_decay
     )
 
-    # Learning rate scheduler
+    # Learning rate schedular
     scheduler = ReduceLROnPlateau(
         optimizer,
         mode="min",
@@ -94,45 +86,36 @@ def train(data_processor: "DataProcessing", params: Bert4RecTrainingParams):
         verbose=True,
     )
 
-    # Early stopping variables
+    # Early stopping metrics
     best_val_loss = float("inf")
     early_stop_counter = 0
     best_model_state = None
 
-    # Training loop
+    train_loader, val_loader, test_loader = data_processor.get_dataloaders(
+        batch_size=params.batch_size
+    )
+
     for epoch in range(params.epochs):
 
-        # Training phase
         model.train()
         train_loss = 0
         train_batches = 0
 
         progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{params.epochs}")
         for batch in progress_bar:
-            # Move batch to device
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
-            target_ids = batch["labels"].to(device)
+            labels = batch["labels"].to(device)
 
-            # Zero gradients
             optimizer.zero_grad()
-
-            # Forward pass
             outputs = model(input_ids, attention_mask, output_logits=True)
-
-            # Calculate loss
-            # Reshape outputs and targets for cross-entropy loss
-            loss = criterion(outputs.view(-1, params.vocab_size), target_ids.view(-1))
-
-            # Backward pass and optimize
+            loss = criterion(outputs.view(-1, params.vocab_size), labels.view(-1))
             loss.backward()
             optimizer.step()
 
-            # Update stats
             train_loss += loss.item()
             train_batches += 1
 
-            # Update progress bar
             progress_bar.set_postfix({"train_loss": train_loss / train_batches})
 
         avg_train_loss = train_loss / train_batches
@@ -144,39 +127,31 @@ def train(data_processor: "DataProcessing", params: Bert4RecTrainingParams):
 
         with torch.no_grad():
             for batch in tqdm(val_loader, desc="Validation"):
-                # Move batch to device
                 input_ids = batch["input_ids"].to(device)
                 attention_mask = batch["attention_mask"].to(device)
-                target_ids = batch["labels"].to(device)
+                labels = batch["labels"].to(device)
 
-                # Forward pass
                 outputs = model(input_ids, attention_mask, output_logits=True)
-
-                # Calculate loss
                 loss = criterion(
-                    outputs.view(-1, params.vocab_size), target_ids.view(-1)
+                    outputs.view(-1, params.vocab_size), labels.view(-1)
                 )
-
-                # Update stats
                 val_loss += loss.item()
                 val_batches += 1
 
         avg_val_loss = val_loss / val_batches
-
-        # Update learning rate scheduler
         scheduler.step(avg_val_loss)
 
-        # Print epoch stats
         print(
             f"Epoch {epoch+1}/{params.epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}"
         )
 
-        # Early stopping check
+        # Early stopping
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             early_stop_counter = 0
             best_model_state = model.state_dict().copy()
-            # Save best model
+            
+            # Backup the new best model for later inference
             torch.save(
                 {
                     "epoch": epoch,
@@ -192,27 +167,23 @@ def train(data_processor: "DataProcessing", params: Bert4RecTrainingParams):
                 print(f"Early stopping triggered after {epoch+1} epochs")
                 break
 
-    # Load best model for evaluation
+    
+    # Test the best model
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
 
-    # Evaluate on test set
     model.eval()
     test_loss = 0
     test_batches = 0
 
     with torch.no_grad():
         for batch in tqdm(test_loader, desc="Testing"):
-            # Move batch to device
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
-            target_ids = batch["labels"].to(device)
+            labels = batch["labels"].to(device)
 
-            # Forward pass
             outputs = model(input_ids, attention_mask, output_logits=True)
-
-            # Calculate loss
-            loss = criterion(outputs.view(-1, params.vocab_size), target_ids.view(-1))
+            loss = criterion(outputs.view(-1, params.vocab_size), labels.view(-1))
 
             # Update stats
             test_loss += loss.item()
