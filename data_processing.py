@@ -4,13 +4,16 @@ Separation of concerns is used since this class can be subject to tuning,
 the other simply prepares the data.
 """
 
-from dataclasses import dataclass
-from data_preprocessing import DataPreprocessing
-import pandas as pd
-from torch.utils.data import DataLoader
+import random
 from math import ceil
+from dataclasses import dataclass
 
-from dataset import BERT4RecDataset
+import pandas as pd
+import numpy as np
+import torch
+from torch.utils.data import DataLoader, Dataset
+
+from data_preprocessing import DataPreprocessing
 
 
 @dataclass
@@ -27,6 +30,67 @@ class DataParameters:
     mask_probability: float = 0.15
 
 
+class BERT4RecDataset(Dataset):
+    def __init__(self, df, params: DataParameters, is_train=True):
+        self.df = df
+        self.params = params
+        self.is_train = is_train
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        user_id = row["user_id"]
+        sequence = row["input_seq"]
+        position_ids = row["position_ids"]
+        includes_target = row["target"]
+
+        # Attention mask so that padding tokens are ignored
+        attention_mask = [
+            0 if item == self.params.padding_token else 1 for item in sequence
+        ]
+
+        labels = sequence.copy()
+
+        # No target, so MLM
+        if not includes_target:
+            input_ids = self._apply_masking(sequence, attention_mask)
+
+            # Set tokens that are not a label (not masked) to padding so they are ignored by the loss function
+            for i in range(len(labels)):
+                if input_ids[i] != self.params.masking_token:
+                    labels[i] = self.params.padding_token
+
+        # Sequence includes a target: the last element
+        else:
+            input_ids = sequence.copy()
+            last_pos = len(sequence) - 1
+            input_ids[last_pos] = self.params.masking_token
+            for i in range(len(labels) - 1):
+                labels[i] = self.params.padding_token
+
+        return {
+            "user_id": user_id,
+            "input_ids": torch.tensor(input_ids, dtype=torch.long),
+            "position_ids": torch.tensor(position_ids, dtype=torch.long),
+            "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
+            "labels": torch.tensor(labels, dtype=torch.long),
+        }
+
+    def _apply_masking(self, sequence, attention_mask):
+        masked_sequence = np.array(sequence.copy())
+
+        valid_positions = [i for i, mask in enumerate(attention_mask) if mask == 1]
+        n_to_mask = max(1, int(len(valid_positions) * self.params.mask_probability))
+
+        if n_to_mask > 0 and valid_positions:
+            mask_positions = random.sample(valid_positions, n_to_mask)
+            masked_sequence[mask_positions] = self.params.masking_token
+
+        return masked_sequence
+
+
 class DataProcessing:
     def __init__(
         self, preprocessor: DataPreprocessing, params: DataParameters = DataParameters()
@@ -40,6 +104,16 @@ class DataProcessing:
         self.train_df = self.pad_user_sequences(self.train_df)
         self.val_df = self.pad_user_sequences(self.val_df)
         self.test_df = self.pad_user_sequences(self.test_df)
+
+    def get_max_sequence_length(self):
+        max_length = 0
+
+        for row in self.ratings["dense_movie_id"]:
+            row_length = len(eval(row))
+            if row_length > max_length:
+                max_length = row_length
+
+        return max_length
 
     def get_token_count(self):
         unique_movie_ids = set()
@@ -83,8 +157,6 @@ class DataProcessing:
                 print("Skipping because we could split no test set")
                 continue
 
-            # TODO: possibly generate subsequences for training
-
             # Train: MLM, no target. Use sliding window to generate many subsequences per user.
             train_seq = interactions[:train_end]
             min_len = min(self.params.min_sequence_lenght, len(train_seq))
@@ -99,6 +171,7 @@ class DataProcessing:
                     {
                         "user_id": user_id,
                         "input_seq": subseq,
+                        "position_ids": list(range(start_idx, end_idx)),
                         "target": False,
                     }
                 )
@@ -108,6 +181,7 @@ class DataProcessing:
                 {
                     "user_id": user_id,
                     "input_seq": interactions[:val_end],
+                    "position_ids": list(range(0, val_end)),
                     "target": True,
                 }
             )
@@ -117,6 +191,7 @@ class DataProcessing:
                 {
                     "user_id": user_id,
                     "input_seq": interactions,
+                    "position_ids": list(range(0, len(interactions))),
                     "target": True,
                 }
             )
@@ -133,15 +208,15 @@ class DataProcessing:
         Needs to be performed for the three train, val and test sets.
         """
 
-        def _process_ratings(row):
-            interactions = row["input_seq"]
+        def _process_ratings(row, column_name: str, padding_token):
+            interactions = row[column_name]
             n_inter = len(interactions)
 
             if n_inter == self.params.pad_length:
                 return interactions  # No padding needed
             elif n_inter < self.params.pad_length:
                 padding_length = self.params.pad_length - n_inter
-                padding = [self.params.padding_token] * padding_length
+                padding = [padding_token] * padding_length
 
                 if self.params.pad_side == "left":
                     return padding + interactions
@@ -153,7 +228,13 @@ class DataProcessing:
                 else:
                     return interactions[: self.params.pad_length]
 
-        df["input_seq"] = df.apply(_process_ratings, axis=1)
+        df["input_seq"] = df.apply(
+            lambda row: _process_ratings(row, "input_seq", self.params.padding_token),
+            axis=1,
+        )
+        df["position_ids"] = df.apply(
+            lambda row: _process_ratings(row, "position_ids", 0), axis=1
+        )
         return df
 
     def get_dataloaders(self, batch_size=32):
