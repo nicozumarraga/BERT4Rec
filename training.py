@@ -29,24 +29,12 @@ def get_top_k_items(outputs: np.ndarray, k: int = 10):
     return np.argsort(outputs, axis=1)[:, -k:]
 
 
-# TODO: implement properly and test
-def compute_recall_at_k(batch_outputs: torch.Tensor, batch_labels: torch.Tensor, k=10):
-    batch_outputs = batch_outputs.detach().cpu().numpy()
-    batch_labels = batch_labels.detach().cpu().numpy()
+def compute_recall_at_k(all_top_10_outputs: np.ndarray, all_labels: np.ndarray):
+    hits = sum(
+        1 for idx, label in enumerate(all_labels) if label in all_top_10_outputs[idx]
+    )
 
-    batch_labels = batch_labels.reshape(-1)
-    top_k_items = np.argsort(batch_outputs, axis=1)[:, -k:]
-
-    # Check if true label is in top-k predictions
-    hits = 0
-    for i, label in enumerate(batch_labels):
-        if label in top_k_items[i]:
-            hits += 1
-
-    # Calculate recall@k
-    recall = hits / len(batch_labels)
-
-    return recall
+    return hits / len(all_labels)
 
 
 # TODO: implement properly and test
@@ -82,11 +70,13 @@ def compute_ndcg_at_k(outputs: torch.Tensor, labels: torch.Tensor, k=10):
 def evaluate(model, loader, criterion, vocab_size: int, device="cuda", k=10):
     model.eval()
     total_loss = 0
+    batch_count = 0
     all_outputs = []
     all_labels = []
 
     with torch.no_grad():
         for batch in loader:
+            batch_count += 1
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             position_ids = batch["position_ids"].to(device)
@@ -100,25 +90,30 @@ def evaluate(model, loader, criterion, vocab_size: int, device="cuda", k=10):
             loss = criterion(outputs.view(-1, vocab_size), labels.view(-1))
             total_loss += loss.item()
 
-            all_outputs.append(outputs.detach().cpu().numpy())
-            all_labels.append(labels.detach().cpu().numpy())
+            for i in range(input_ids.size(0)):
+                for j in range(input_ids.size(1)):
+                    if labels[i, j] != 0:
+                        preds = outputs[i, j].detach().cpu().numpy()
+                        label = labels[i, j].item()
+
+                        all_outputs.append(preds)
+                        all_labels.append(label)
 
     all_outputs = np.array(all_outputs)
     all_labels = np.array(all_labels)
-
     all_top_10_outputs = get_top_k_items(all_outputs, k=10)
-    print(all_top_10_outputs.shape)
 
     # Compute metrics
-    # recall = compute_recall_at_k(all_outputs, all_labels, k=k)
+    recall = compute_recall_at_k(all_top_10_outputs, all_labels)
+    print(recall)
     # ndcg = compute_ndcg_at_k(all_outputs, all_labels, k=k)
 
     # Compute average loss
-    avg_loss = total_loss / len(all_labels)
+    avg_loss = total_loss / batch_count
 
     return {
         "loss": avg_loss,
-        # f"recall@{k}": recall,
+        f"recall@{k}": recall,
         # f"ndcg@{k}": ndcg,
     }
 
@@ -142,7 +137,6 @@ def train(data_processor: DataProcessing, params: Bert4RecTrainingParams):
         mode="min",
         factor=params.scheduler_factor,
         patience=params.scheduler_patience,
-        verbose=True,
     )
 
     # Early stopping metrics
@@ -190,7 +184,7 @@ def train(data_processor: DataProcessing, params: Bert4RecTrainingParams):
         scheduler.step(val_results["loss"])
 
         print(
-            f"Epoch {epoch+1}/{params.epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {val_results['loss']:.4f}"
+            f"Epoch {epoch+1}/{params.epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {val_results['loss']:.4f}, LR: {scheduler.get_last_lr()}"
         )
 
         # Early stopping
@@ -219,7 +213,7 @@ def train(data_processor: DataProcessing, params: Bert4RecTrainingParams):
     test_results = evaluate(
         model, val_loader, criterion, params.vocab_size, device, k=10
     )
-    print(f"Test Loss: {test_results['loss']:.4f:.4f}")
+    print(f"Test Loss: {test_results['loss']:.4f}")
 
     return test_results, val_results, epoch
 
@@ -235,13 +229,15 @@ if __name__ == "__main__":
 
     training_params = Bert4RecTrainingParams(
         vocab_size=data_processor.get_token_count(),
-        heads=8,
-        num_hidden_layers=4,
-        hidden_layer_size=256,
-        num_pos=20,
+        heads=2,
+        num_hidden_layers=1,
+        hidden_layer_size=64,
+        num_pos=1500,
         epochs=1,
-        batch_size=32,
+        batch_size=512,
         learning_rate=1e-3,
     )
 
-    model, test_loss = train(data_processor, training_params)
+    last_test_results, last_val_results, epoch = train(data_processor, training_params)
+
+    print(last_test_results)
