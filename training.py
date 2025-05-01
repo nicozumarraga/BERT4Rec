@@ -29,41 +29,24 @@ def get_top_k_items(outputs: np.ndarray, k: int = 10):
     return np.argsort(outputs, axis=1)[:, -k:]
 
 
-def compute_recall_at_k(all_top_10_outputs: np.ndarray, all_labels: np.ndarray):
-    hits = sum(
-        1 for idx, label in enumerate(all_labels) if label in all_top_10_outputs[idx]
-    )
+def compute_recall_at_k(top_k_outputs: np.ndarray, all_labels: np.ndarray):
+    hits = sum(1 for idx, label in enumerate(all_labels) if label in top_k_outputs[idx])
 
     return hits / len(all_labels)
 
 
-# TODO: implement properly and test
-def compute_ndcg_at_k(outputs: torch.Tensor, labels: torch.Tensor, k=10):
-    batch_outputs = batch_outputs.detach().cpu().numpy()
-    batch_labels = batch_labels.detach().cpu().numpy()
-
-    batch_labels = batch_labels.reshape(-1)
-    top_k_indices = np.argsort(batch_outputs, axis=1)[:, -k:]
-    top_k_indices = np.flip(top_k_indices, axis=1)
-
-    # Calculate NDCG for each sample
-    ndcg_scores = []
-    for i, label in enumerate(batch_labels):
-        # Check if true label is in top-k predictions
-        if label in top_k_indices[i]:
-            # Find position of true label in top-k (0-indexed)
-            rank = np.where(top_k_indices[i] == label)[0][0]
-            # Calculate DCG
-            ndcg = 1 / np.log2(rank + 2)  # +2 because rank is 0-indexed
+def compute_ndcg_at_k(top_k_outputs: np.ndarray, all_labels: np.ndarray):
+    total_ndcg_score = 0
+    for i, label in enumerate(all_labels):
+        rank_matches = np.where(top_k_outputs[i] == label)[0]
+        if rank_matches:
+            ndcg = 1 / np.log2(rank_matches[0] + 2)  # +2 because rank is 0-indexed
         else:
             ndcg = 0
 
-        ndcg_scores.append(ndcg)
+        total_ndcg_score += ndcg
 
-    # Calculate average NDCG@k
-    ndcg = np.mean(ndcg_scores)
-
-    return ndcg
+    return total_ndcg_score / len(all_labels)
 
 
 # TODO: implement this in the training loop
@@ -105,8 +88,7 @@ def evaluate(model, loader, criterion, vocab_size: int, device="cuda", k=10):
 
     # Compute metrics
     recall = compute_recall_at_k(all_top_10_outputs, all_labels)
-    print(recall)
-    # ndcg = compute_ndcg_at_k(all_outputs, all_labels, k=k)
+    ndcg = compute_ndcg_at_k(all_top_10_outputs, all_labels)
 
     # Compute average loss
     avg_loss = total_loss / batch_count
@@ -114,7 +96,7 @@ def evaluate(model, loader, criterion, vocab_size: int, device="cuda", k=10):
     return {
         "loss": avg_loss,
         f"recall@{k}": recall,
-        # f"ndcg@{k}": ndcg,
+        f"ndcg@{k}": ndcg,
     }
 
 
@@ -234,7 +216,7 @@ if __name__ == "__main__":
         hidden_layer_size=64,
         num_pos=1500,
         epochs=1,
-        batch_size=512,
+        batch_size=128,
         learning_rate=1e-3,
     )
 
