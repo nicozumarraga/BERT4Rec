@@ -11,10 +11,10 @@ from data_processing import DataParameters, DataProcessing
 @dataclass
 class Bert4RecParams:
     vocab_size: int = 59049
+    num_pos: int = 20
     heads: int = 4
     num_hidden_layers: int = 4
     hidden_layer_size: int = 256
-    num_pos: int = 20
 
 
 class Bert4Rec(nn.Module):
@@ -35,7 +35,11 @@ class Bert4Rec(nn.Module):
 
     def forward(self, input_ids, attention_mask, position_ids, output_logits=True):
 
-        bert_output = self.bert(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids)
+        bert_output = self.bert(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+        )
 
         logits = self.output(bert_output.last_hidden_state)
         if output_logits:

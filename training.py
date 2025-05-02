@@ -14,8 +14,8 @@ from model import Bert4Rec, Bert4RecParams
 
 @dataclass
 class Bert4RecTrainingParams(Bert4RecParams):
-    epochs: int = 10
-    batch_size: int = 64
+    epochs: int = 100
+    batch_size: int = 128
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
     early_stop_patience: int = 3
@@ -166,7 +166,7 @@ def train(data_processor: DataProcessing, params: Bert4RecTrainingParams):
         scheduler.step(val_results["loss"])
 
         print(
-            f"Epoch {epoch+1}/{params.epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {val_results['loss']:.4f}, LR: {scheduler.get_last_lr()}"
+            f"Epoch {epoch+1}/{params.epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {val_results['loss']:.4f}, Val recall@10: {val_results['recall@10']:.4f}, Val NDCG@10: {val_results['ndcg@10']:.4f}, LR: {scheduler.get_last_lr()}"
         )
 
         # Early stopping
@@ -193,7 +193,7 @@ def train(data_processor: DataProcessing, params: Bert4RecTrainingParams):
 
     model.load_state_dict(best_model_state)
     test_results = evaluate(
-        model, val_loader, criterion, params.vocab_size, device, k=10
+        model, test_loader, criterion, params.vocab_size, device, k=10
     )
     print(f"Test Loss: {test_results['loss']:.4f}")
 
