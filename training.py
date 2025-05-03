@@ -18,9 +18,9 @@ class Bert4RecTrainingParams(Bert4RecParams):
     batch_size: int = 128
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
-    early_stop_patience: int = 3
+    early_stop_patience: int = 10
     early_stop_warmup: int = 20
-    early_stop_delta: float = 0.001
+    early_stop_delta: float = 0.00001
     scheduler_patience: int = 1
     scheduler_factor: float = 0.5
 
@@ -122,7 +122,7 @@ def train(data_processor: DataProcessing, params: Bert4RecTrainingParams):
     )
 
     # Early stopping metrics
-    best_val_loss = float("inf")
+    best_ndcg = -np.inf
     early_stop_counter = 0
     best_model_state = None
 
@@ -170,8 +170,8 @@ def train(data_processor: DataProcessing, params: Bert4RecTrainingParams):
         )
 
         # Early stopping
-        if val_results["loss"] < best_val_loss - params.early_stop_delta:
-            best_val_loss = val_results["loss"]
+        if val_results["ndcg@10"] > best_ndcg + params.early_stop_delta:
+            best_ndcg = val_results["ndcg@10"]
             early_stop_counter = 0
             best_model_state = model.state_dict().copy()
 
@@ -181,7 +181,7 @@ def train(data_processor: DataProcessing, params: Bert4RecTrainingParams):
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
-                    "val_loss": val_results["loss"],
+                    "val_ndcg@10": val_results["ndcg@10"],
                 },
                 "best_bert4rec_model.pt",
             )
