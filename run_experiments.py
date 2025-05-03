@@ -130,6 +130,25 @@ def sequence_length_experiment(args: Args):
     )
 
 
+def grid_search_experiment(args: Args):
+    run_experiment(
+        args,
+        [
+            (
+                DataParameters(pad_length=pad_length),
+                Bert4RecTrainingParams(
+                    hidden_layer_size=hidden_size, learning_rate=learning_rate
+                ),
+            )
+            for pad_length, hidden_size, learning_rate in (
+                (20, 50),  # sequence length
+                (128, 256),  # hidden size
+                (5e-3, 1e-3, 5e-4),  # learning rate
+            )
+        ],
+    )
+
+
 def main(args: Args):
     args.results_file = args.results_file.replace(
         EXPERIMENT_FILE_PLACEHOLDER, args.experiment
@@ -149,6 +168,8 @@ def main(args: Args):
         max_sequence_length_experiment(args)
     elif args.experiment == "sequence_length":
         sequence_length_experiment(args)
+    elif args.experiment == "grid_search":
+        grid_search_experiment(args)
     else:
         raise NotImplementedError(f"Could not find experiment {args.experiment}")
 
