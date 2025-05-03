@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import os
 import time
+import itertools
 
 import tyro
 import pandas as pd
@@ -140,7 +141,7 @@ def grid_search_experiment(args: Args):
                     hidden_layer_size=hidden_size, learning_rate=learning_rate
                 ),
             )
-            for pad_length, hidden_size, learning_rate in (
+            for pad_length, hidden_size, learning_rate in itertools.product(
                 (20, 50),  # sequence length
                 (128, 256),  # hidden size
                 (5e-3, 1e-3, 5e-4),  # learning rate
