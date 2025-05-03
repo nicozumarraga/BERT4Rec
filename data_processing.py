@@ -7,6 +7,7 @@ the other simply prepares the data.
 import random
 from math import ceil
 from dataclasses import dataclass
+from typing import Optional
 
 import pandas as pd
 import numpy as np
@@ -20,7 +21,7 @@ from data_preprocessing import DataPreprocessing
 class DataParameters:
     padding_token: int = 0
     masking_token: int = 1
-    pad_length: int = 20
+    pad_length: int = 40
     pad_side: str = "left"
     trunc_side: str = "left"  # keep latest interactions
     train_split: float = 0.7
@@ -28,6 +29,7 @@ class DataParameters:
     val_split: float = 0.15
     min_sequence_lenght: int = 3
     mask_probability: float = 0.15
+    max_sequence_length: Optional[int] = 200
 
 
 class BERT4RecDataset(Dataset):
@@ -106,6 +108,9 @@ class DataProcessing:
         self.test_df = self.pad_user_sequences(self.test_df)
 
     def get_max_sequence_length(self):
+        if self.params.max_sequence_length is not None:
+            return self.params.max_sequence_length
+
         max_length = 0
 
         for row in self.ratings["dense_movie_id"]:
@@ -145,6 +150,9 @@ class DataProcessing:
 
             if len(interactions) < self.params.min_sequence_lenght:
                 continue
+
+            if self.params.max_sequence_length is not None:
+                interactions = interactions[-self.params.max_sequence_length :]
 
             train_end = int(self.params.train_split * len(interactions))
             val_end = train_end + ceil(self.params.val_split * len(interactions))

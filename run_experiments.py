@@ -24,7 +24,7 @@ class Args:
     results_dir: str = "./results"
     results_file: str = f"{EXPERIMENT_FILE_PLACEHOLDER}_results.csv"
     data_path: str = "./data"
-    max_epochs: int = 100
+    max_epochs: int = 400
 
 
 # TODO: encapsulate DataParameters and Bert4RecTrainingParams into one.
@@ -110,8 +110,24 @@ def masking_ratio_experiment(args: Args):
     )
 
 
-# TODO: experiment with positional encoding strategies like tuncating longer sequences
-# to a max length of 500 or by just using relative position id's, that start from 0 for each sequence.
+def max_sequence_length_experiment(args: Args):
+    run_experiment(
+        args,
+        [
+            (DataParameters(max_sequence_length=x), Bert4RecTrainingParams())
+            for x in (100, 200, None)
+        ],
+    )
+
+
+def sequence_length_experiment(args: Args):
+    run_experiment(
+        args,
+        [
+            (DataParameters(pad_length=x), Bert4RecTrainingParams())
+            for x in (20, 50, 100)
+        ],
+    )
 
 
 def main(args: Args):
@@ -129,6 +145,10 @@ def main(args: Args):
         layer_size_experiment(args)
     elif args.experiment == "masking_ratio":
         masking_ratio_experiment(args)
+    elif args.experiment == "max_sequence_length":
+        max_sequence_length_experiment(args)
+    elif args.experiment == "sequence_length":
+        sequence_length_experiment(args)
     else:
         raise NotImplementedError(f"Could not find experiment {args.experiment}")
 
