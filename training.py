@@ -50,6 +50,7 @@ def compute_ndcg_at_k(top_k_outputs: np.ndarray, all_labels: np.ndarray):
 
 
 # TODO: implement this in the training loop
+# this is point-wise evaluation, we implement and use full ranking below.
 def evaluate(model, loader, criterion, vocab_size: int, device="cuda", k=10):
     model.eval()
     total_loss = 0
@@ -97,6 +98,104 @@ def evaluate(model, loader, criterion, vocab_size: int, device="cuda", k=10):
         "loss": avg_loss,
         f"recall@{k}": recall,
         f"ndcg@{k}": ndcg,
+    }
+
+def full_rank_eval(
+    model, loader, criterion, vocab_size: int, device="cuda", k=10
+):
+    model.eval()
+    total_loss = 0
+    batch_count = 0
+
+    user_predictions = {}
+    user_ground_truth = {}
+
+    with torch.no_grad():
+        for batch in loader:
+            batch_count += 1
+            user_ids = batch["user_id"].tolist()
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            position_ids = batch["position_ids"].to(device)
+            labels = batch["labels"].to(device)
+
+            outputs = model(
+                input_ids = input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids
+            )
+            loss = criterion(outputs.view(-1, vocab_size), labels.view(-1))
+            total_loss += loss.item()
+
+            # process for each user in batch the full ranking
+            for i in range(input_ids.size(0)):
+                user_id = user_ids[i]
+
+                # reinitialize the user structures
+                if user_id not in user_predictions:
+                    user_predictions[user_id] = {}
+                if user_id not in user_ground_truth:
+                    user_ground_truth[user_id] = []
+
+                # Get all item predictions for this user
+                for j in range(input_ids.size(1)):
+                    if labels[i, j] != 0:  # ground truth
+                        ground_truth_item = labels[i, j].item()
+                        user_ground_truth[user_id].append(ground_truth_item)
+
+                        item_scores = outputs[i, j].detach().cpu().numpy()
+                        for item_id, score in enumerate(item_scores):
+                            if item_id not in user_predictions[user_id]:
+                                user_predictions[user_id][item_id] = score
+                            else:
+                                # If item appears multiple times take max score
+                                user_predictions[user_id][item_id] = max(
+                                    user_predictions[user_id][item_id], score
+                                )
+
+    # Calculate metrics for each user
+    # TODO: move to specific recall and NDCG functions if this eval method works
+    recall_scores = []
+    ndcg_scores = []
+
+    for user_id in user_predictions:
+        ranked_items = sorted(
+            user_predictions[user_id].keys(),
+            key=lambda x: user_predictions[user_id][x],
+            reverse=True
+        )
+
+        top_k_items = ranked_items[:k]
+
+        # Recall
+        ground_truth = user_ground_truth[user_id]
+        hits = sum(1 for item in ground_truth if item in top_k_items)
+        recall = hits / len(ground_truth) if ground_truth else 0
+        recall_scores.append(recall)
+
+        # NDCG
+        dcg = 0
+        for gt_item in ground_truth:
+            if gt_item in top_k_items:
+                rank = top_k_items.index(gt_item)
+                dcg += 1 / np.log2(rank + 2)
+
+        # Ideal DCG
+        ideal_ranks = list(range(min(len(ground_truth), k)))
+        idcg = sum(1 / np.log2(rank + 2) for rank in ideal_ranks)
+
+        ndcg = dcg / idcg if idcg > 0 else 0
+        ndcg_scores.append(ndcg)
+
+    # Average across users
+    avg_recall = np.mean(recall_scores) if recall_scores else 0
+    avg_ndcg = np.mean(ndcg_scores) if ndcg_scores else 0
+    avg_loss = total_loss / batch_count
+
+    return {
+        "loss": avg_loss,
+        f"recall@{k}": avg_recall,
+        f"ndcg@{k}": avg_ndcg,
     }
 
 
@@ -160,7 +259,7 @@ def train(data_processor: DataProcessing, params: Bert4RecTrainingParams):
 
         avg_train_loss = train_loss / train_batches
 
-        val_results = evaluate(
+        val_results = full_rank_eval(
             model, val_loader, criterion, params.vocab_size, device, k=10
         )
         scheduler.step(val_results["loss"])
@@ -192,7 +291,7 @@ def train(data_processor: DataProcessing, params: Bert4RecTrainingParams):
                 break
 
     model.load_state_dict(best_model_state)
-    test_results = evaluate(
+    test_results = full_rank_eval(
         model, test_loader, criterion, params.vocab_size, device, k=10
     )
     print(f"Test Loss: {test_results['loss']:.4f}")

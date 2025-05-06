@@ -30,6 +30,7 @@ class DataParameters:
     min_sequence_lenght: int = 3
     mask_probability: float = 0.15
     max_sequence_length: Optional[int] = 200
+    ground_truth_items: int = 5
 
 
 class BERT4RecDataset(Dataset):
@@ -47,6 +48,7 @@ class BERT4RecDataset(Dataset):
         sequence = row["input_seq"]
         position_ids = row["position_ids"]
         includes_target = row["target"]
+        target_positions = row.get("target_positions", [len(sequence) - 1]) # kept last item as fallback
 
         # Attention mask so that padding tokens are ignored
         attention_mask = [
@@ -67,10 +69,16 @@ class BERT4RecDataset(Dataset):
         # Sequence includes a target: the last element
         else:
             input_ids = sequence.copy()
-            last_pos = len(sequence) - 1
-            input_ids[last_pos] = self.params.masking_token
-            for i in range(len(labels) - 1):
+
+            # All labels set to padding initially
+            for i in range(len(labels)):
                 labels[i] = self.params.padding_token
+
+            # Mask targets and set label
+            for pos in target_positions:
+                if pos < len(sequence):
+                    input_ids[pos] = self.params.masking_token
+                    labels[pos] = sequence[pos] # Reset original value as label
 
         return {
             "user_id": user_id,
@@ -184,23 +192,27 @@ class DataProcessing:
                     }
                 )
 
-            # Validation: Predict the next item after train sequence plus validation sequence
+            # Validation: Use multiple ground truth items
+            val_gt_start = max(0, val_end - self.params.ground_truth_items)
             val_sequences.append(
                 {
                     "user_id": user_id,
                     "input_seq": interactions[:val_end],
                     "position_ids": list(range(0, val_end)),
                     "target": True,
+                    "target_positions": list(range(val_gt_start, val_end))
                 }
             )
 
-            # Test: Predict the last item using the entire sequence
+            # Test: Use multiple ground truth items
+            test_gt_start = max(0, len(interactions) - self.params.ground_truth_items)
             test_sequences.append(
                 {
                     "user_id": user_id,
                     "input_seq": interactions,
                     "position_ids": list(range(0, len(interactions))),
                     "target": True,
+                    "target_positions": list(range(test_gt_start, len(interactions)))
                 }
             )
 
