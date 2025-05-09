@@ -214,7 +214,7 @@ def full_rank_eval(
     avg_loss = total_loss / max(1, batch_count)
 
     return {
-        "loss": avg_loss if batch_count > 0 else -avg_ndcg,
+        "loss": -avg_ndcg, # using negative NDCG for minimization as target
         f"recall@{k}": avg_recall,
         f"ndcg@{k}": avg_ndcg,
     }
