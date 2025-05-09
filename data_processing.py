@@ -48,25 +48,24 @@ class BERT4RecDataset(Dataset):
         sequence = row["input_seq"]
         position_ids = row["position_ids"]
         includes_target = row["target"]
-        target_positions = row.get("target_positions", [len(sequence) - 1]) # kept last item as fallback
+        future_items = row.get("future_items", [len(sequence) - 1]) # kept last item as fallback
 
         # Attention mask so that padding tokens are ignored
         attention_mask = [
             0 if item == self.params.padding_token else 1 for item in sequence
         ]
 
-        labels = sequence.copy()
-
         # No target, so MLM
         if not includes_target:
             input_ids = self._apply_masking(sequence, attention_mask)
+            labels = sequence.copy()
 
             # Set tokens that are not a label (not masked) to padding so they are ignored by the loss function
             for i in range(len(labels)):
                 if input_ids[i] != self.params.masking_token:
                     labels[i] = self.params.padding_token
 
-        # Sequence includes a target: the last element
+        # Sequence includes a target: validation/test data
         else:
             input_ids = sequence.copy()
 
@@ -74,18 +73,13 @@ class BERT4RecDataset(Dataset):
             for i in range(len(labels)):
                 labels[i] = self.params.padding_token
 
-            # Mask targets and set label
-            for pos in target_positions:
-                if pos < len(sequence):
-                    input_ids[pos] = self.params.masking_token
-                    labels[pos] = sequence[pos] # Reset original value as label
-
         return {
             "user_id": user_id,
             "input_ids": torch.tensor(input_ids, dtype=torch.long),
             "position_ids": torch.tensor(position_ids, dtype=torch.long),
             "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
             "labels": torch.tensor(labels, dtype=torch.long),
+            "future_items": torch.tensor(future_items, dtype=torch.long),
         }
 
     def _apply_masking(self, sequence, attention_mask):
@@ -193,26 +187,34 @@ class DataProcessing:
                 )
 
             # Validation: Use multiple ground truth items
-            val_gt_start = max(0, val_end - self.params.ground_truth_items)
+            # user history up to train_end, predict items from train_end to val_end
+            val_history = interactions[:train_end]
+            max_val_items = min(val_end - train_end, self.params.ground_truth_items)
+            val_future_items = interactions[train_end:train_end + max_val_items]
+
             val_sequences.append(
                 {
                     "user_id": user_id,
-                    "input_seq": interactions[:val_end],
-                    "position_ids": list(range(0, val_end)),
+                    "input_seq": val_history,
+                    "position_ids": list(range(len(val_history))),
                     "target": True,
-                    "target_positions": list(range(val_gt_start, val_end))
+                    "future_items": val_future_items
                 }
             )
 
             # Test: Use multiple ground truth items
-            test_gt_start = max(0, len(interactions) - self.params.ground_truth_items)
+            # user history up to val_end, predict items from val_end to end of sequence
+            test_history = interactions[:val_end]
+            max_test_items = min(len(interactions) - val_end, self.params.ground_truth_items)
+            test_future_items = interactions[val_end:val_end + max_test_items]
+
             test_sequences.append(
                 {
                     "user_id": user_id,
-                    "input_seq": interactions,
-                    "position_ids": list(range(0, len(interactions))),
+                    "input_seq": test_history,
+                    "position_ids": list(range(len(test_history))),
                     "target": True,
-                    "target_positions": list(range(test_gt_start, len(interactions)))
+                    "future_items": test_future_items
                 }
             )
 

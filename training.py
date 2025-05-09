@@ -66,13 +66,22 @@ def evaluate(model, loader, criterion, vocab_size: int, device="cuda", k=10):
             position_ids = batch["position_ids"].to(device)
             labels = batch["labels"].to(device)
 
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-            )
-            loss = criterion(outputs.view(-1, vocab_size), labels.view(-1))
-            total_loss += loss.item()
+            if "labels" in batch:
+                labels = batch["labels"].to(device)
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                )
+                loss = criterion(outputs.view(-1, vocab_size), labels.view(-1))
+                total_loss += loss.item()
+            else:
+                # Just for predictions without calculating loss
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                )
 
             for i in range(input_ids.size(0)):
                 for j in range(input_ids.size(1)):
@@ -117,15 +126,24 @@ def full_rank_eval(
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             position_ids = batch["position_ids"].to(device)
-            labels = batch["labels"].to(device)
+            future_items = batch["future_items"]
 
-            outputs = model(
-                input_ids = input_ids,
-                attention_mask=attention_mask,
-                position_ids=position_ids
-            )
-            loss = criterion(outputs.view(-1, vocab_size), labels.view(-1))
-            total_loss += loss.item()
+            if "labels" in batch:
+                labels = batch["labels"].to(device)
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                )
+                loss = criterion(outputs.view(-1, vocab_size), labels.view(-1))
+                total_loss += loss.item()
+            else:
+                # Just for predictions without calculating loss
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                )
 
             # process for each user in batch the full ranking
             for i in range(input_ids.size(0)):
@@ -137,21 +155,24 @@ def full_rank_eval(
                 if user_id not in user_ground_truth:
                     user_ground_truth[user_id] = []
 
-                # Get all item predictions for this user
-                for j in range(input_ids.size(1)):
-                    if labels[i, j] != 0:  # ground truth
-                        ground_truth_item = labels[i, j].item()
-                        user_ground_truth[user_id].append(ground_truth_item)
+                # store ground truth future items (excluded padding tokens)
+                if future_items is not None:
+                    user_future = future_items[i].tolist()
+                    user_future = [item for item in user_future if item != 0]
+                    user_ground_truth[user_id].extend(user_future)
 
-                        item_scores = outputs[i, j].detach().cpu().numpy()
-                        for item_id, score in enumerate(item_scores):
-                            if item_id not in user_predictions[user_id]:
-                                user_predictions[user_id][item_id] = score
-                            else:
-                                # If item appears multiple times take max score
-                                user_predictions[user_id][item_id] = max(
-                                    user_predictions[user_id][item_id], score
-                                )
+                # find the last valid position in the sequence and predict
+                valid_indices = (attention_mask[i] == 1).nonzero(as_tuple=True)[0]
+                if len(valid_indices) == 0:
+                    continue
+                last_pos = valid_indices[-1].item()
+                item_scores = outputs[i, last_pos].detach().cpu().numpy()
+
+                # store predictions for all items (except padding token)
+                for item_id, score in enumerate(item_scores):
+                    if item_id == 0:
+                        continue
+                    user_predictions[user_id][item_id] = score
 
     # Calculate metrics for each user
     # TODO: move to specific recall and NDCG functions if this eval method works
@@ -190,10 +211,10 @@ def full_rank_eval(
     # Average across users
     avg_recall = np.mean(recall_scores) if recall_scores else 0
     avg_ndcg = np.mean(ndcg_scores) if ndcg_scores else 0
-    avg_loss = total_loss / batch_count
+    avg_loss = total_loss / max(1, batch_count)
 
     return {
-        "loss": avg_loss,
+        "loss": avg_loss if batch_count > 0 else -avg_ndcg,
         f"recall@{k}": avg_recall,
         f"ndcg@{k}": avg_ndcg,
     }
