@@ -48,7 +48,7 @@ class BERT4RecDataset(Dataset):
         sequence = row["input_seq"]
         position_ids = row["position_ids"]
         includes_target = row["target"]
-        future_items = row.get("future_items", [len(sequence) - 1]) # kept last item as fallback
+        future_items = row.get("future_items", [self.params.padding_token] * self.params.ground_truth_items)
 
         # Attention mask so that padding tokens are ignored
         attention_mask = [
@@ -68,10 +68,7 @@ class BERT4RecDataset(Dataset):
         # Sequence includes a target: validation/test data
         else:
             input_ids = sequence.copy()
-
-            # All labels set to padding initially
-            for i in range(len(labels)):
-                labels[i] = self.params.padding_token
+            labels = [self.params.padding_token] * len(sequence)
 
         return {
             "user_id": user_id,
@@ -192,6 +189,11 @@ class DataProcessing:
             max_val_items = min(val_end - train_end, self.params.ground_truth_items)
             val_future_items = interactions[train_end:train_end + max_val_items]
 
+            # Pad future items to fixed length
+            if len(val_future_items) < self.params.ground_truth_items:
+                padding = [self.params.padding_token] * (self.params.ground_truth_items - len(val_future_items))
+                val_future_items = val_future_items + padding
+
             val_sequences.append(
                 {
                     "user_id": user_id,
@@ -207,6 +209,11 @@ class DataProcessing:
             test_history = interactions[:val_end]
             max_test_items = min(len(interactions) - val_end, self.params.ground_truth_items)
             test_future_items = interactions[val_end:val_end + max_test_items]
+
+            # Pad future items to fixed length
+            if len(test_future_items) < self.params.ground_truth_items:
+                padding = [self.params.padding_token] * (self.params.ground_truth_items - len(test_future_items))
+                test_future_items = test_future_items + padding
 
             test_sequences.append(
                 {
